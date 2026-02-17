@@ -1,0 +1,19 @@
+{
+  "allowedPaths": [
+    "groups/",
+    "data/"
+  ],
+  "blockedPatterns": [
+    "*.env",
+    "*.pem",
+    "*.key",
+    "*.pfx",
+    "*.p12",
+    "id_rsa",
+    "id_ed25519",
+    "credentials",
+    ".ssh/",
+    ".aws/",
+    ".azure/"
+  ]
+}

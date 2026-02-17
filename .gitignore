@@ -1,0 +1,65 @@
+# .NET build outputs
+bin/
+obj/
+*.dll
+*.exe
+*.pdb
+
+# Visual Studio / Rider
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.sln.docstates
+
+# Test coverage
+coverage/
+*.coverage
+*.coveragexml
+
+# Build artifacts
+[Bb]uild/
+[Dd]ebug/
+[Rr]elease/
+
+# NuGet
+*.nupkg
+*.snupkg
+packages/
+!packages/build/
+
+# Honeybadger runtime data
+data/honeybadger.db
+data/honeybadger.db-shm
+data/honeybadger.db-wal
+data/ipc/*.json
+logs/
+*.log
+
+# Docker build context
+.dockerignore
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*~
+
+# User-specific
+appsettings.Development.json
+config/mount-allowlist.json
+.claude/
+
+# Rider
+_ReSharper*/
+*.DotSettings.user
+
+# JetBrains
+.idea/
+*.sln.iml

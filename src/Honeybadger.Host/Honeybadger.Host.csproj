@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="GitHub.Copilot.SDK" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Cronos" />
+    <PackageReference Include="Serilog" />
+    <PackageReference Include="Serilog.Extensions.Hosting" />
+    <PackageReference Include="Serilog.Sinks.File" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Honeybadger.Core\Honeybadger.Core.csproj" />
+    <ProjectReference Include="..\Honeybadger.Data\Honeybadger.Data.csproj" />
+    <ProjectReference Include="..\Honeybadger.Agent\Honeybadger.Agent.csproj" />
+  </ItemGroup>
+
+</Project>

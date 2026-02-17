@@ -1,0 +1,42 @@
+<Solution>
+  <Folder Name="/.github/" />
+  <Folder Name="/.github/workflows/">
+    <File Path=".github/workflows/ci.yml" />
+  </Folder>
+  <Folder Name="/config/">
+    <File Path="config/mount-allowlist.json.example" />
+  </Folder>
+  <Folder Name="/data/">
+    <File Path="data/.gitkeep" />
+  </Folder>
+  <Folder Name="/data/ipc/">
+    <File Path="data/ipc/.gitkeep" />
+  </Folder>
+  <Folder Name="/groups/" />
+  <Folder Name="/groups/main/">
+    <File Path="groups/main/CLAUDE.md" />
+  </Folder>
+  <Folder Name="/Solution Items/">
+    <File Path=".editorconfig" />
+    <File Path=".gitignore" />
+    <File Path="CLAUDE.md" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="LICENSE" />
+    <File Path="README.md" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Honeybadger.Agent/Honeybadger.Agent.csproj" />
+    <Project Path="src/Honeybadger.Console/Honeybadger.Console.csproj" />
+    <Project Path="src/Honeybadger.Core/Honeybadger.Core.csproj" />
+    <Project Path="src/Honeybadger.Data.Sqlite/Honeybadger.Data.Sqlite.csproj" />
+    <Project Path="src/Honeybadger.Data/Honeybadger.Data.csproj" />
+    <Project Path="src/Honeybadger.Host/Honeybadger.Host.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Honeybadger.Agent.Tests/Honeybadger.Agent.Tests.csproj" />
+    <Project Path="tests/Honeybadger.Core.Tests/Honeybadger.Core.Tests.csproj" />
+    <Project Path="tests/Honeybadger.Host.Tests/Honeybadger.Host.Tests.csproj" />
+    <Project Path="tests/Honeybadger.Integration.Tests/Honeybadger.Integration.Tests.csproj" />
+  </Folder>
+</Solution>
