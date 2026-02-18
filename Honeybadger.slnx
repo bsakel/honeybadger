@@ -16,6 +16,11 @@
   <Folder Name="/groups/main/">
     <File Path="groups/main/CLAUDE.md" />
   </Folder>
+  <Folder Name="/plans/">
+    <File Path="plans/memory-analysis.md" />
+    <File Path="plans/stage1-service-chat-split.md" />
+    <File Path="plans/stage2-console-logging.md" />
+  </Folder>
   <Folder Name="/Solution Items/">
     <File Path=".editorconfig" />
     <File Path=".gitignore" />
