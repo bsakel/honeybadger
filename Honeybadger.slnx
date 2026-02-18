@@ -18,6 +18,7 @@
   </Folder>
   <Folder Name="/plans/">
     <File Path="plans/memory-analysis.md" />
+    <File Path="plans/multi-agent-system.md" />
     <File Path="plans/stage1-service-chat-split.md" />
     <File Path="plans/stage2-console-logging.md" />
   </Folder>
