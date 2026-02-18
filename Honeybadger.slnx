@@ -17,10 +17,14 @@
     <File Path="groups/main/CLAUDE.md" />
   </Folder>
   <Folder Name="/plans/">
-    <File Path="plans/memory-analysis.md" />
-    <File Path="plans/multi-agent-system.md" />
-    <File Path="plans/stage1-service-chat-split.md" />
-    <File Path="plans/stage2-console-logging.md" />
+    <File Path="plans/00-overview.md" />
+    <File Path="plans/01-memory-bugfixes.md" />
+    <File Path="plans/02-service-chat-split.md" />
+    <File Path="plans/03-console-logging.md" />
+    <File Path="plans/04-multi-agent-foundation.md" />
+    <File Path="plans/05-multi-agent-delegation.md" />
+    <File Path="plans/06-memory-enhancements.md" />
+    <File Path="plans/07-advanced-memory.md" />
   </Folder>
   <Folder Name="/Solution Items/">
     <File Path=".editorconfig" />
