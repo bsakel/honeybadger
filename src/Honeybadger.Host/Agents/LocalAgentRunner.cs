@@ -4,6 +4,7 @@ using Honeybadger.Agent.Tools;
 using Honeybadger.Core.Configuration;
 using Honeybadger.Core.Interfaces;
 using Honeybadger.Core.Models;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Serilog.Context;
@@ -34,7 +35,8 @@ public class LocalAgentRunner : IAgentRunner
     public async Task<AgentResponse> RunAgentAsync(
         AgentRequest request,
         Func<string, Task>? onStreamChunk = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IEnumerable<AIFunction>? tools = null)
     {
         using var _ = LogContext.PushProperty("CorrelationId", request.CorrelationId);
 
@@ -59,10 +61,22 @@ public class LocalAgentRunner : IAgentRunner
                 _logger.LogDebug("Project path available for {Group}: {Path}", request.GroupName, projectPath);
             }
 
-            // Create tools and orchestrator with loggers
-            var ipcTools = new IpcTools(ipcDir, request.GroupName,
-                _loggerFactory.CreateLogger<IpcTools>(), request.CorrelationId);
-            var orchestrator = new AgentOrchestrator(ipcTools,
+            // Use provided tools or create default IpcTools for legacy mode
+            IEnumerable<AIFunction> agentTools;
+            if (tools is not null)
+            {
+                _logger.LogDebug("Using provided tools (multi-agent mode)");
+                agentTools = tools;
+            }
+            else
+            {
+                _logger.LogDebug("Creating default IpcTools (legacy mode)");
+                var ipcTools = new IpcTools(ipcDir, request.GroupName,
+                    _loggerFactory.CreateLogger<IpcTools>(), request.CorrelationId);
+                agentTools = ipcTools.GetAll();
+            }
+
+            var orchestrator = new AgentOrchestrator(agentTools,
                 _loggerFactory.CreateLogger<AgentOrchestrator>());
 
             // Run the agent with streaming support

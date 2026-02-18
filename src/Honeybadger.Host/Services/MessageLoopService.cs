@@ -4,6 +4,8 @@ using Honeybadger.Core.Interfaces;
 using Honeybadger.Core.Models;
 using Honeybadger.Data.Entities;
 using Honeybadger.Data.Repositories;
+using Honeybadger.Host.Agents;
+using Honeybadger.Host.Formatting;
 using Honeybadger.Host.Memory;
 using Honeybadger.Host.Scheduling;
 using Microsoft.Extensions.DependencyInjection;
@@ -11,12 +13,14 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Serilog.Context;
+using AIFunction = Microsoft.Extensions.AI.AIFunction;
 
 namespace Honeybadger.Host.Services;
 
 /// <summary>
 /// Reads incoming chat messages from IChatFrontend, routes through GroupQueue,
 /// invokes IAgentRunner, and delivers responses back to the user.
+/// Supports multi-agent routing via AgentRegistry.
 /// </summary>
 public class MessageLoopService(
     IChatFrontend frontend,
@@ -25,6 +29,8 @@ public class MessageLoopService(
     HierarchicalMemoryStore memoryStore,
     IServiceScopeFactory scopeFactory,
     IOptions<HoneybadgerOptions> options,
+    AgentRegistry agentRegistry,
+    AgentToolFactory agentToolFactory,
     ILogger<MessageLoopService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -36,6 +42,23 @@ public class MessageLoopService(
             var msg = message; // capture for closure
             await groupQueue.EnqueueAsync(msg.GroupName, ct => ProcessMessageAsync(msg, ct), stoppingToken);
         }
+    }
+
+    /// <summary>
+    /// Determine which agent configuration to use for this message.
+    /// Returns the router agent if configured, otherwise null for legacy mode.
+    /// </summary>
+    private AgentConfiguration? DetermineAgentForMessage(string groupName)
+    {
+        var routerAgent = agentRegistry.GetRouterAgent();
+        if (routerAgent is not null)
+        {
+            logger.LogDebug("Multi-agent mode active: using router agent '{AgentId}'", routerAgent.AgentId);
+            return routerAgent;
+        }
+
+        logger.LogDebug("Legacy mode: no router agent configured");
+        return null;
     }
 
     private async Task ProcessMessageAsync(ChatMessage message, CancellationToken ct)
@@ -60,15 +83,15 @@ public class MessageLoopService(
             var msgRepo = scope.ServiceProvider.GetRequiredService<MessageRepository>();
             var sessionRepo = scope.ServiceProvider.GetRequiredService<SessionRepository>();
 
-            // Persist the user's message
-            await msgRepo.AddMessageAsync(message.GroupName, message.Id, message.Sender, message.Content, false, ct);
-            logger.LogDebug("Persisted user message");
-
-            // Load recent conversation history for context
+            // Load recent conversation history for context (BEFORE persisting current message)
             var opts = options.Value;
             var recentMessages = await msgRepo.GetRecentMessagesAsync(message.GroupName, opts.Agent.ConversationHistoryCount, ct);
-            var conversationHistory = FormatConversationHistory(recentMessages);
+            var conversationHistory = ConversationFormatter.Format(recentMessages, opts.Agent.ConversationHistoryTokenBudget);
             logger.LogDebug("Loaded {Count} recent messages", recentMessages.Count);
+
+            // Persist the user's message (AFTER loading history, so it won't be in the context)
+            await msgRepo.AddMessageAsync(message.GroupName, message.Id, message.Sender, message.Content, false, ct);
+            logger.LogDebug("Persisted user message");
 
             // Resolve session for conversation continuity
             var session = await sessionRepo.GetLatestAsync(message.GroupName, ct);
@@ -77,14 +100,33 @@ public class MessageLoopService(
             else
                 logger.LogDebug("No existing session");
 
+            // Determine which agent to use (router if configured, null for legacy mode)
+            var agentConfig = DetermineAgentForMessage(message.GroupName);
+
             // Resolve model and CLI endpoint
-            var model = opts.GetModelForGroup(message.GroupName);
+            var model = agentConfig?.Model ?? opts.GetModelForGroup(message.GroupName);
             var cliEndpoint = opts.Agent.CopilotCli.AutoStart
                 ? $"localhost:{opts.Agent.CopilotCli.Port}"
                 : string.Empty;
 
             logger.LogDebug("Resolved model={Model}, cliEndpoint={Endpoint}",
                 model, string.IsNullOrEmpty(cliEndpoint) ? "(none)" : cliEndpoint);
+
+            // Build agent request
+            var globalMemory = memoryStore.LoadGlobalMemory();
+
+            // For router agents, inject available agents summary into global memory
+            if (agentConfig?.IsRouter == true)
+            {
+                var agentSummary = agentRegistry.GetAgentSummary();
+                if (!string.IsNullOrWhiteSpace(agentSummary))
+                {
+                    globalMemory = string.IsNullOrWhiteSpace(globalMemory)
+                        ? $"## Available Specialist Agents\n{agentSummary}"
+                        : $"{globalMemory}\n\n## Available Specialist Agents\n{agentSummary}";
+                    logger.LogDebug("Injected agent summary into global memory");
+                }
+            }
 
             var request = new AgentRequest
             {
@@ -94,13 +136,29 @@ public class MessageLoopService(
                 Content = message.Content,
                 SessionId = session?.SessionId,
                 Model = model,
-                GlobalMemory = memoryStore.LoadGlobalMemory(),
+                GlobalMemory = globalMemory,
                 GroupMemory = memoryStore.LoadGroupMemory(message.GroupName),
+                AgentMemory = memoryStore.LoadGroupAgentMemory(message.GroupName),
+                ConversationSummary = memoryStore.LoadGroupSummary(message.GroupName),
                 ConversationHistory = conversationHistory,
-                CopilotCliEndpoint = cliEndpoint
+                CopilotCliEndpoint = cliEndpoint,
+                // Multi-agent fields
+                AgentId = agentConfig?.AgentId,
+                IsRouterAgent = agentConfig?.IsRouter ?? false,
+                Soul = agentConfig?.Soul is not null ? agentRegistry.LoadSoulFile(agentConfig.Soul) : null,
+                AvailableTools = agentConfig?.Tools ?? []
             };
 
-            logger.LogInformation("Invoking agent for group {Group} with model {Model}", message.GroupName, model);
+            logger.LogInformation("Invoking agent for group {Group} with model {Model} (AgentId={AgentId})",
+                message.GroupName, model, agentConfig?.AgentId ?? "(legacy)");
+
+            // Build tools for the agent
+            IEnumerable<AIFunction>? tools = null;
+            if (agentConfig is not null)
+            {
+                tools = agentToolFactory.CreateToolsForAgent(agentConfig, message.GroupName, correlationId);
+                logger.LogDebug("Created tools for agent {AgentId}", agentConfig.AgentId);
+            }
 
             // Stream response chunks as they arrive
             var streamedContent = new System.Text.StringBuilder();
@@ -109,7 +167,7 @@ public class MessageLoopService(
             {
                 streamedContent.Append(chunk);
                 await frontend.SendStreamChunkAsync(message.GroupName, chunk, ct);
-            }, ct);
+            }, ct, tools);
             agentStopwatch.Stop();
 
             logger.LogDebug("Agent runner returned Success={Success} ({ContentLength} chars) in {ElapsedMs}ms",
@@ -167,13 +225,5 @@ public class MessageLoopService(
                 IsFromAgent = true
             }, ct);
         }
-    }
-
-    private static string FormatConversationHistory(IReadOnlyList<MessageEntity> messages)
-    {
-        var sb = new System.Text.StringBuilder();
-        foreach (var m in messages)
-            sb.AppendLine($"[{m.Sender}]: {m.Content}");
-        return sb.ToString();
     }
 }

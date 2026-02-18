@@ -50,7 +50,7 @@ try
 
     var ipcTools = new IpcTools(ipcDir, groupName,
         loggerFactory.CreateLogger<IpcTools>(), request.CorrelationId);
-    var orchestrator = new AgentOrchestrator(ipcTools,
+    var orchestrator = new AgentOrchestrator(ipcTools.GetAll(),
         loggerFactory.CreateLogger<AgentOrchestrator>());
     var response = await orchestrator.RunAsync(request);
 

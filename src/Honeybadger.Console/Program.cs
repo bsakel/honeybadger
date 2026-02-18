@@ -1,4 +1,3 @@
-using Honeybadger.Console;
 using Honeybadger.Core.Configuration;
 using Honeybadger.Core.Interfaces;
 using Honeybadger.Data;
@@ -15,21 +14,12 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Serilog;
-using Serilog.Events;
 
 var builder = Host.CreateApplicationBuilder(args);
 
-// Serilog — write to file only; console output is handled by Spectre.Console
+// Serilog — configured via appsettings.json (console + file sinks)
 Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(builder.Configuration)
-    .Enrich.FromLogContext()
-    .WriteTo.File("logs/honeybadger.log",
-        rollingInterval: RollingInterval.Day,
-        outputTemplate: "{Timestamp:HH:mm:ss.fff} [{Level:u3}] [{CorrelationId}] {SourceContext} {Message:lj}{NewLine}{Exception}")
-    .WriteTo.File("logs/honeybadger-debug.log",
-        rollingInterval: RollingInterval.Day,
-        restrictedToMinimumLevel: LogEventLevel.Debug,
-        outputTemplate: "{Timestamp:HH:mm:ss.fff} [{Level:u3}] [{CorrelationId}] {SourceContext} {Message:lj}{NewLine}{Exception}")
     .CreateLogger();
 builder.Logging.ClearProviders();
 builder.Logging.AddSerilog(Log.Logger);
@@ -79,6 +69,14 @@ builder.Services.AddSingleton(sp =>
     new HierarchicalMemoryStore(repoRoot, sp.GetRequiredService<ILogger<HierarchicalMemoryStore>>()));
 builder.Services.AddSingleton<MountSecurityValidator>();
 
+// Multi-agent infrastructure
+builder.Services.AddSingleton<AgentRegistry>();
+builder.Services.AddSingleton<AgentToolFactory>(sp =>
+{
+    var ipcDir = Path.Combine(repoRoot, "data", "ipc");
+    return new AgentToolFactory(sp.GetRequiredService<ILoggerFactory>(), ipcDir);
+});
+
 // Agent runner — in-process only (LocalAgentRunner)
 var ipcDir = Path.Combine(repoRoot, "data", "ipc");
 Directory.CreateDirectory(ipcDir);
@@ -94,8 +92,8 @@ builder.Services.AddSingleton<GroupQueue>(sp =>
     return new GroupQueue(agentOpts.MaxConcurrentAgents, sp.GetRequiredService<ILogger<GroupQueue>>());
 });
 
-// Console chat frontend
-builder.Services.AddSingleton<IChatFrontend, ConsoleChat>();
+// Named-pipe chat frontend (headless service)
+builder.Services.AddSingleton<IChatFrontend, NamedPipeChatFrontend>();
 
 // Hosted services
 builder.Services.AddHostedService<CopilotCliService>();
@@ -106,6 +104,10 @@ builder.Services.AddHostedService(sp => new IpcWatcherService(
     sp.GetRequiredService<IChatFrontend>(),
     sp.GetRequiredService<CronExpressionEvaluator>(),
     sp.GetRequiredService<IServiceScopeFactory>(),
+    sp.GetRequiredService<AgentRegistry>(),
+    sp.GetRequiredService<AgentToolFactory>(),
+    sp.GetRequiredService<ILoggerFactory>(),
+    sp.GetRequiredService<IOptions<HoneybadgerOptions>>().Value,
     ipcDir,
     sp.GetRequiredService<ILogger<IpcWatcherService>>()));
 
@@ -114,12 +116,20 @@ var host = builder.Build();
 // Ensure data directories exist and DB is migrated
 Directory.CreateDirectory(Path.Combine(repoRoot, "groups", "main"));
 Directory.CreateDirectory(Path.Combine(repoRoot, "logs"));
+Directory.CreateDirectory(Path.Combine(repoRoot, "config", "agents"));
+Directory.CreateDirectory(Path.Combine(repoRoot, "souls"));
 using (var scope = host.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<HoneybadgerDbContext>();
     await db.Database.EnsureCreatedAsync();
 }
 
-Log.Information("Honeybadger starting...");
+// Load agent configurations
+var agentRegistry = host.Services.GetRequiredService<AgentRegistry>();
+var agentConfigPath = Path.Combine(repoRoot, "config", "agents");
+agentRegistry.LoadFromDirectory(agentConfigPath);
+
+Log.Information("Honeybadger service starting (headless mode)...");
+Log.Information("Connect chat clients via: dotnet run --project src/Honeybadger.Chat -- --group <groupName>");
 await host.RunAsync();
 Log.CloseAndFlush();

@@ -8,6 +8,8 @@ public class AgentOptions
     public int TimeoutSeconds { get; set; } = 300;
     public int MaxConcurrentAgents { get; set; } = 3;
     public int ConversationHistoryCount { get; set; } = 20;
+    public int ScheduledTaskHistoryCount { get; set; } = 10;
+    public int ConversationHistoryTokenBudget { get; set; } = 8000; // 0 = no limit
     public CopilotCliOptions CopilotCli { get; set; } = new();
 }
 

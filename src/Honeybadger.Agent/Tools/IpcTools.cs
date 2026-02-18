@@ -16,13 +16,15 @@ public class IpcTools
     private readonly string _groupName;
     private readonly ILogger<IpcTools> _logger;
     private readonly string _correlationId;
+    private readonly string _agentId;
 
-    public IpcTools(string ipcDirectory, string groupName, ILogger<IpcTools> logger, string correlationId = "")
+    public IpcTools(string ipcDirectory, string groupName, ILogger<IpcTools> logger, string correlationId = "", string agentId = "")
     {
         _ipcDirectory = ipcDirectory;
         _groupName = groupName;
         _logger = logger;
         _correlationId = correlationId;
+        _agentId = agentId;
         Directory.CreateDirectory(ipcDirectory);
     }
 
@@ -40,6 +42,8 @@ public class IpcTools
             "Cancel a scheduled task by ID"),
         AIFunctionFactory.Create(ListTasks, "list_tasks",
             "List all scheduled tasks for this group"),
+        AIFunctionFactory.Create(UpdateMemory, "update_memory",
+            "Save a note to the group's persistent memory. Use this when the user asks you to remember something."),
     ];
 
     private async Task<string> SendMessage(
@@ -178,6 +182,23 @@ public class IpcTools
 
         _logger.LogWarning("Timeout waiting for list_tasks response {RequestId}", requestId);
         return "Timeout waiting for task list response from host";
+    }
+
+    private async Task<string> UpdateMemory(
+        [System.ComponentModel.Description("The content to save to memory")]
+        string content,
+        [System.ComponentModel.Description("Optional section name to organize the note under")]
+        string? section = null)
+    {
+        _logger.LogDebug("Tool 'update_memory' invoked [Group={Group}]", _groupName);
+        var payload = new UpdateMemoryPayload
+        {
+            Content = content,
+            Section = section,
+            AgentId = _agentId
+        };
+        await WriteIpcFileAsync(IpcMessageType.UpdateMemory, payload);
+        return "Memory updated";
     }
 
     private async Task WriteIpcFileAsync<T>(IpcMessageType type, T payload)

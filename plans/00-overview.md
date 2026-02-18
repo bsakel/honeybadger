@@ -32,28 +32,25 @@ Phase 1 (memory bugfixes)
 
 ## Phase Index
 
-| Phase | File | Summary | Effort |
+| Phase | File | Summary | Status |
 |-------|------|---------|--------|
-| 1 | `01-memory-bugfixes.md` | Fix CLAUDE.md content, double-injection bug, memory caching, scheduler memory | Small |
-| 2 | `02-service-chat-split.md` | Split console into headless service + named-pipe chat client | Medium |
-| 3 | `03-console-logging.md` | Add Serilog console sink to headless service | Small |
-| 4 | `04-multi-agent-foundation.md` | AgentConfiguration model, AgentRegistry, example configs/souls | Medium |
-| 5 | `05-multi-agent-delegation.md` | Delegation tools, IPC handlers, message routing | Medium-Large |
-| 6 | `06-memory-enhancements.md` | Agent-writable memory, separate files, token budget | Medium |
-| 7 | `07-advanced-memory.md` | Summarization + semantic search | Large (future) |
+| 1 | `01-memory-bugfixes.md` | Fix CLAUDE.md content, double-injection bug, memory caching, scheduler memory | ✅ Complete |
+| 2 | `02-service-chat-split.md` | Split console into headless service + named-pipe chat client | ✅ Complete |
+| 3 | `03-console-logging.md` | Add Serilog console sink to headless service | ✅ Complete |
+| 4 | `04-multi-agent-foundation.md` | AgentConfiguration model, AgentRegistry, example configs/souls | ✅ Complete |
+| 5 | `05-multi-agent-delegation.md` | Delegation tools, IPC handlers, message routing | ✅ Complete |
+| 6 | `06-memory-enhancements.md` | Agent-writable memory, separate files, token budget | ✅ Complete |
+| 7 | `07-advanced-memory.md` | Summarization + semantic search | 🔮 Future |
 
-## Test Count Expectations
+## Test Count Progress
 
-| Phase | New Tests | Running Total |
-|-------|-----------|---------------|
-| Current | — | 36 |
-| 1 | 4-6 | ~40-42 |
-| 2 | 2-4 | ~44 |
-| 3 | 0 | ~44 |
-| 4 | 5-8 | ~52 |
-| 5 | 3-5 | ~57 |
-| 6 | 4-6 | ~63 |
-| 7 | 3-5 | ~68 |
+| Phase | Status | Test Count |
+|-------|--------|------------|
+| Baseline | ✅ | 36 |
+| Phase 1-6 | ✅ Complete | 44 (7 Core + 16 Integration + 21 Host) |
+| Phase 7 | 🔮 Future | TBD |
+
+**Current Build Status**: ✅ 0 errors, 0 warnings, 44 tests passing
 
 ## Verification (Every Phase)
 

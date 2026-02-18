@@ -1,0 +1,10 @@
+{
+  "agentId": "scheduler",
+  "name": "Task Scheduler",
+  "description": "Manages scheduled tasks, reminders, and recurring jobs",
+  "soul": "souls/scheduler.md",
+  "model": null,
+  "tools": ["schedule_task", "list_tasks", "pause_task", "resume_task", "cancel_task", "send_message"],
+  "mcpServers": [],
+  "capabilities": ["Task scheduling", "Cron expressions", "Reminder management"]
+}

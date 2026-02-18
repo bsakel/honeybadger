@@ -5,6 +5,7 @@ using Honeybadger.Core.Interfaces;
 using Honeybadger.Core.Models;
 using Honeybadger.Data;
 using Honeybadger.Data.Repositories;
+using Honeybadger.Host.Agents;
 using Honeybadger.Host.Memory;
 using Honeybadger.Host.Scheduling;
 using Honeybadger.Host.Services;
@@ -52,7 +53,11 @@ public class MessageLoopServiceTests : IDisposable
             .Returns(Task.CompletedTask);
 
         var agentRunnerMock = new Mock<IAgentRunner>();
-        agentRunnerMock.Setup(c => c.RunAgentAsync(It.IsAny<AgentRequest>(), It.IsAny<Func<string, Task>>(), It.IsAny<CancellationToken>()))
+        agentRunnerMock.Setup(c => c.RunAgentAsync(
+                It.IsAny<AgentRequest>(),
+                It.IsAny<Func<string, Task>>(),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<IEnumerable<Microsoft.Extensions.AI.AIFunction>>()))
             .ReturnsAsync(new AgentResponse { Success = true, Content = "Hello from agent", SessionId = "sess-1" });
 
         var opts = Options.Create(new HoneybadgerOptions
@@ -63,6 +68,14 @@ public class MessageLoopServiceTests : IDisposable
         using var queue = new GroupQueue(maxConcurrent: 1, NullLogger<GroupQueue>.Instance);
         var memoryStore = new HierarchicalMemoryStore(_tempDir, NullLogger<HierarchicalMemoryStore>.Instance);
 
+        // Multi-agent infrastructure (empty registry for legacy mode)
+        var agentRegistry = new AgentRegistry(NullLogger<AgentRegistry>.Instance);
+        // Don't load any configs, so GetRouterAgent() will return null (legacy mode)
+
+        var ipcDir = Path.Combine(_tempDir, "ipc");
+        Directory.CreateDirectory(ipcDir);
+        var agentToolFactory = new AgentToolFactory(NullLoggerFactory.Instance, ipcDir);
+
         using var cts = new CancellationTokenSource();
         var svc = new MessageLoopService(
             frontendMock.Object,
@@ -71,6 +84,8 @@ public class MessageLoopServiceTests : IDisposable
             memoryStore,
             _sp.GetRequiredService<IServiceScopeFactory>(),
             opts,
+            agentRegistry,
+            agentToolFactory,
             NullLogger<MessageLoopService>.Instance);
 
         // Act
@@ -94,7 +109,8 @@ public class MessageLoopServiceTests : IDisposable
         agentRunnerMock.Verify(c => c.RunAgentAsync(
             It.Is<AgentRequest>(r => r.GroupName == "main" && r.Content == "Hello"),
             It.IsAny<Func<string, Task>>(),
-            It.IsAny<CancellationToken>()), Times.Once);
+            It.IsAny<CancellationToken>(),
+            It.IsAny<IEnumerable<Microsoft.Extensions.AI.AIFunction>>()), Times.Once);
 
         sentMessages.Should().HaveCount(1);
         sentMessages[0].Content.Should().Be("Hello from agent");

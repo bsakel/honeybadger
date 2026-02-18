@@ -7,7 +7,10 @@ public enum IpcMessageType
     PauseTask,
     ResumeTask,
     CancelTask,
-    ListTasks
+    ListTasks,
+    DelegateToAgent,
+    ListAvailableAgents,
+    UpdateMemory
 }
 
 public class IpcMessage

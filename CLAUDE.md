@@ -45,7 +45,10 @@ Honeybadger is an in-process personal AI assistant built in C#/.NET 10, inspired
 - **Rich console UI** — Spectre.Console panels, spinners, colored output, streaming token output
 - **Graceful shutdown** — `IHostApplicationLifetime` cancellation, `Console.In.ReadLineAsync` with token support
 - **Central package management** — `Directory.Build.props`, `Directory.Packages.props`
-- **Comprehensive test suite** — 36 tests (unit, integration, scheduling, IPC, security)
+- **Comprehensive test suite** — 44 tests (unit, integration, scheduling, IPC, security)
+- **Multi-agent collaboration** — Router agents delegate to specialist agents with custom tools and soul files
+- **Agent-writable memory** — Agents can persist learned facts via `update_memory` IPC tool
+- **Token budget awareness** — Conversation history respects configurable token budget, prioritizes recent messages
 - **In-process agent execution** — `LocalAgentRunner` runs agents without containerization overhead
 - **Streaming responses** — real-time token-by-token output from Copilot SDK
 - **Conversation history in context** — automatic inclusion of recent messages in agent prompts
@@ -54,50 +57,56 @@ Honeybadger is an in-process personal AI assistant built in C#/.NET 10, inspired
 
 ## Implementation Status
 
-All seven phases are complete (original 6 + Phase 7 post-MVP enhancements):
+Foundation complete, multi-agent collaboration working, enhanced memory system implemented:
 
 | Phase | Status | What was built |
 |---|---|---|
-| 1 — Foundation | ✅ Done | Solution scaffold, models, EF Core DbContext (7 tables), SQLite migrations, config POCOs, interfaces |
-| 2 — Copilot CLI & Agent | ✅ Done | CopilotCliService (SDK-managed), LocalAgentRunner, AgentOrchestrator (Copilot SDK sessions), IPC tools, MountSecurityValidator, FileBasedIpcTransport |
-| 3 — Console Frontend & Message Loop | ✅ Done | ConsoleChat (Spectre.Console), GroupQueue (per-group channels + global semaphore), MessageLoopService (end-to-end routing), HierarchicalMemoryStore |
-| 4 — Task Scheduler | ✅ Done | SchedulerService (30s PeriodicTimer + immediate startup tick), CronExpressionEvaluator (Cronos), IpcWatcherService (routes schedule_task with NextRunAt computation) |
-| 5 — Simplified Configuration | ✅ Done | Removed provider switching; SQLite-only for simplicity and reliability |
-| 6 — Polish & Security | ✅ Done | Graceful shutdown (IHostApplicationLifetime), structured logging (Serilog LogContext), crash recovery (immediate scheduler tick), mount security (allowlist + blocked patterns + symlink resolution) |
-| 7 — Post-MVP Enhancements | ✅ Done | Codebase cleanup, LocalAgentRunner (in-process mode), streaming responses, conversation history, ListTasks IPC response, main group project mount, GitHub Actions CI |
-| 8 — Simplification | ✅ Done | Removed Docker and SQL Server support; focus on working, tested, simple architecture |
+| Foundation (1-3) | ✅ Done | Solution scaffold, EF Core + SQLite (7 tables), LocalAgentRunner (in-process), AgentOrchestrator (Copilot SDK), IPC tools, mount security, named-pipe chat client, Serilog structured logging, streaming responses, conversation history |
+| Multi-Agent Foundation (4) | ✅ Done | AgentConfiguration model, AgentRegistry (loads config/agents/*.json), soul files (agent personalities), example router + specialist configs, IPC message types for delegation |
+| Multi-Agent Delegation (5) | ✅ Done | AgentDelegationTools (delegate_to_agent, list_available_agents), AgentToolFactory (config → AIFunction mapping), IpcWatcherService delegation handlers, MessageLoopService agent routing, specialist orchestration with custom tools |
+| Memory Enhancements (6) | ✅ Done | update_memory IPC tool (agent-writable persistence), separate memory files (CLAUDE.md/MEMORY.md/summary.md), HierarchicalMemoryStore with FileSystemWatcher cache invalidation, token budget awareness (8000 tokens default), ConversationFormatter prioritizes recent messages |
+| Advanced Memory (7) | 🔮 Future | Conversation summarization → summary.md, semantic search with sqlite-vec, search_memory IPC tool |
 
-**Build**: `dotnet build Honeybadger.slnx` — 0 errors
-**Tests**: `dotnet test Honeybadger.slnx` — 36 passing
+**Build**: `dotnet build Honeybadger.slnx` — 0 errors, 0 warnings
+**Tests**: `dotnet test Honeybadger.slnx` — 44 passing (7 Core + 16 Integration + 21 Host)
 
-### Phase 7 Features (Post-MVP)
+### Current Architecture
 
-1. **Codebase Cleanup** — Removed placeholder `Class1.cs` files, unused stubs, and dead code. Renamed `IContainerRunner` → `IAgentRunner` for semantic clarity.
-
-2. **In-Process Agent Mode** — `LocalAgentRunner` runs `AgentOrchestrator` directly in the host process. No containerization, simpler debugging and development.
-
-3. **Streaming Responses** — Tokens stream from Copilot SDK to console as they arrive. `IAgentRunner.RunAgentAsync` accepts optional `onStreamChunk` callback; `AgentOrchestrator` emits chunks via `AssistantMessageEvent`; `ConsoleChat` writes inline.
-
-4. **Conversation History** — Last N messages loaded from database and included in agent's system prompt for conversational continuity. Configurable via `Agent:ConversationHistoryCount` (default 20).
-
-5. **ListTasks IPC Response** — Agents can query their scheduled tasks via `list_tasks` tool. Host writes `{requestId}.response.json`; agent polls and reads. Bidirectional IPC pattern established.
-
-6. **Main Group Project Mount** — When `Groups:{name}:ProjectPath` is set and `IsMain = true`, host sets `HONEYBADGER_PROJECT_MOUNT` env var for in-process agent. Security-validated via `MountSecurityValidator`.
-
-7. **GitHub Actions CI** — Automated build, test, and lint on push/PR. Two jobs: `build-and-test`, `lint` (format check).
-
-### Current Architecture (Simplified)
-
-Honeybadger runs entirely in-process using `LocalAgentRunner`. The architecture is:
-- **Single process** — Host and agent run in the same .NET process
+Honeybadger runs entirely in-process with multi-agent collaboration:
+- **Single process** — Host and agents run in the same .NET process
+- **Multi-agent system** — Router agent delegates to specialist agents with custom tools and personalities (souls)
+- **Enhanced memory** — Separate files for persona (CLAUDE.md), learned facts (MEMORY.md), summaries (summary.md)
+- **Agent-writable memory** — Agents can persist information via `update_memory` tool
+- **Token budget aware** — Conversation history respects 8000-token budget (configurable), prioritizes recent messages
 - **SQLite only** — Simple, file-based persistence with EF Core
-- **Console only** — Spectre.Console UI (but `IChatFrontend` makes it swappable)
+- **Named-pipe UI** — Headless service + separate chat client (but `IChatFrontend` makes it swappable)
+
+### Multi-Agent Features
+
+1. **Router Agent** — Primary orchestrator that analyzes requests and delegates to specialists
+2. **Specialist Agents** — Domain-specific agents with custom tools and knowledge
+3. **Dynamic Tool Loading** — AgentToolFactory maps agent configuration to AIFunction instances
+4. **Soul Files** — Markdown files defining agent personalities and guidelines
+5. **IPC-based Delegation** — Request/response pattern for inter-agent communication
+6. **Agent Summary Injection** — Router automatically sees available specialists in context
+
+### Memory System
+
+1. **Hierarchical Memory** — Global (AGENT.md) + per-group files with caching
+2. **Three-tier Group Memory**:
+   - `CLAUDE.md` — Persona (read-only, defines group character)
+   - `MEMORY.md` — Learned facts (agent-writable via update_memory tool)
+   - `summary.md` — Conversation summaries (future: Phase 7)
+3. **FileSystemWatcher Cache** — Automatic invalidation when files change
+4. **Token Budget** — Configurable limit (default 8000), prioritizes recent conversation
+5. **Attribution** — Memory updates track agent ID and timestamp
 
 ### Future Enhancement Opportunities
 
-1. **WhatsApp / Telegram frontend** — `IChatFrontend` abstraction allows adding chat platform adapters
-2. **Docker containerization** — Could add back for true sandboxing if needed (removed for simplicity)
-3. **SQL Server support** — Could add back for scale-out scenarios (removed for simplicity)
+1. **Advanced Memory (Phase 7)** — Conversation summarization, semantic search with sqlite-vec
+2. **WhatsApp / Telegram frontend** — `IChatFrontend` abstraction allows adding chat platform adapters
+3. **Docker containerization** — Could add back for true sandboxing if needed (removed for simplicity)
+4. **SQL Server support** — Could add back for scale-out scenarios (removed for simplicity)
 
 ## Architecture
 

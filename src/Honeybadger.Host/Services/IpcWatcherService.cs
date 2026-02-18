@@ -1,8 +1,11 @@
 using System.Text.Json;
+using Honeybadger.Agent;
+using Honeybadger.Core.Configuration;
 using Honeybadger.Core.Interfaces;
 using Honeybadger.Core.Models;
 using Honeybadger.Data.Entities;
 using Honeybadger.Data.Repositories;
+using Honeybadger.Host.Agents;
 using Honeybadger.Host.Scheduling;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -23,6 +26,10 @@ public class IpcWatcherService(
     IChatFrontend frontend,
     CronExpressionEvaluator cronEval,
     IServiceScopeFactory scopeFactory,
+    AgentRegistry agentRegistry,
+    AgentToolFactory agentToolFactory,
+    ILoggerFactory loggerFactory,
+    HoneybadgerOptions honeybadgerOptions,
     string ipcDirectory,
     ILogger<IpcWatcherService> logger) : BackgroundService
 {
@@ -59,6 +66,15 @@ public class IpcWatcherService(
                     break;
                 case IpcMessageType.ListTasks:
                     await HandleListTasksAsync(message, ct);
+                    break;
+                case IpcMessageType.DelegateToAgent:
+                    await HandleDelegateToAgentAsync(message, ct);
+                    break;
+                case IpcMessageType.ListAvailableAgents:
+                    await HandleListAvailableAgentsAsync(message, ct);
+                    break;
+                case IpcMessageType.UpdateMemory:
+                    await HandleUpdateMemoryAsync(message, ct);
                     break;
                 default:
                     logger.LogWarning("Unknown IPC message type: {Type}", message.Type);
@@ -198,5 +214,133 @@ public class IpcWatcherService(
         await File.WriteAllTextAsync(responsePath, responseJson, ct);
 
         logger.LogInformation("ListTasks response written for group {Group}: {Count} tasks", message.GroupName, summaries.Count);
+    }
+
+    private async Task HandleDelegateToAgentAsync(IpcMessage message, CancellationToken ct)
+    {
+        var payload = JsonSerializer.Deserialize<DelegateToAgentPayload>(message.Payload, JsonOpts);
+        if (payload is null || string.IsNullOrWhiteSpace(payload.AgentId) || string.IsNullOrWhiteSpace(payload.Task))
+        {
+            logger.LogWarning("Invalid DelegateToAgent payload from {Group}", message.GroupName);
+            await WriteErrorResponseAsync(payload?.RequestId ?? Guid.NewGuid().ToString(), "Invalid delegation payload", ct);
+            return;
+        }
+
+        logger.LogInformation("Delegating to agent {AgentId} for group {Group}", payload.AgentId, message.GroupName);
+
+        // Validate agent exists
+        if (!agentRegistry.TryGetAgent(payload.AgentId, out var agentConfig))
+        {
+            logger.LogWarning("Agent {AgentId} not found in registry", payload.AgentId);
+            await WriteErrorResponseAsync(payload.RequestId, $"Agent '{payload.AgentId}' not found", ct);
+            return;
+        }
+
+        try
+        {
+            // Load soul file
+            var soul = agentRegistry.LoadSoulFile(agentConfig!.Soul);
+
+            // Build AgentRequest for specialist
+            var model = agentConfig.Model ?? honeybadgerOptions.Agent.DefaultModel;
+            var cliEndpoint = honeybadgerOptions.Agent.CopilotCli.AutoStart
+                ? $"localhost:{honeybadgerOptions.Agent.CopilotCli.Port}"
+                : string.Empty;
+
+            var request = new AgentRequest
+            {
+                CorrelationId = message.CorrelationId,
+                MessageId = Guid.NewGuid().ToString(),
+                GroupName = message.GroupName,
+                Content = payload.Task,
+                Model = model,
+                AgentId = agentConfig.AgentId,
+                IsRouterAgent = false,
+                Soul = soul,
+                AvailableTools = agentConfig.Tools,
+                GlobalMemory = payload.Context,
+                CopilotCliEndpoint = cliEndpoint
+            };
+
+            // Create tools for specialist
+            var tools = agentToolFactory.CreateToolsForAgent(agentConfig, message.GroupName, message.CorrelationId);
+
+            // Create and run orchestrator
+            var orchestrator = new AgentOrchestrator(tools, loggerFactory.CreateLogger<AgentOrchestrator>());
+            var response = await orchestrator.RunAsync(request, onChunk: null, ct);
+
+            // Write response
+            var delegationResponse = new AgentDelegationResponse
+            {
+                Success = response.Success,
+                Result = response.Content,
+                Error = response.Error
+            };
+
+            var responseJson = JsonSerializer.Serialize(delegationResponse, JsonOpts);
+            var responsePath = Path.Combine(ipcDirectory, $"{payload.RequestId}.response.json");
+            await File.WriteAllTextAsync(responsePath, responseJson, ct);
+
+            logger.LogInformation("Agent {AgentId} delegation completed for group {Group}: Success={Success}",
+                payload.AgentId, message.GroupName, response.Success);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error delegating to agent {AgentId}", payload.AgentId);
+            await WriteErrorResponseAsync(payload.RequestId, $"Delegation error: {ex.Message}", ct);
+        }
+    }
+
+    private async Task HandleListAvailableAgentsAsync(IpcMessage message, CancellationToken ct)
+    {
+        var summary = agentRegistry.GetAgentSummary();
+        var responseText = string.IsNullOrWhiteSpace(summary)
+            ? "No specialist agents available."
+            : summary;
+
+        // Write response file for agent to poll
+        var responseFileName = $"{message.Id}.response.json";
+        var responsePath = Path.Combine(ipcDirectory, responseFileName);
+        await File.WriteAllTextAsync(responsePath, responseText, ct);
+
+        logger.LogInformation("ListAvailableAgents response written for group {Group}", message.GroupName);
+    }
+
+    private async Task HandleUpdateMemoryAsync(IpcMessage message, CancellationToken ct)
+    {
+        var payload = JsonSerializer.Deserialize<UpdateMemoryPayload>(message.Payload, JsonOpts);
+        if (payload is null || string.IsNullOrWhiteSpace(payload.Content))
+        {
+            logger.LogWarning("Invalid UpdateMemory payload from {Group}", message.GroupName);
+            return;
+        }
+
+        // Write to groups/{groupName}/MEMORY.md
+        var repoRoot = Directory.GetCurrentDirectory();
+        var memoryDir = Path.Combine(repoRoot, "groups", message.GroupName);
+        Directory.CreateDirectory(memoryDir);
+        var memoryPath = Path.Combine(memoryDir, "MEMORY.md");
+
+        var timestamp = DateTimeOffset.UtcNow.ToString("yyyy-MM-dd HH:mm");
+        var agent = payload.AgentId ?? "unknown";
+        var section = payload.Section ?? "Notes";
+
+        var entry = $"\n## {section} ({agent}, {timestamp})\n- {payload.Content}\n";
+        await File.AppendAllTextAsync(memoryPath, entry, ct);
+
+        logger.LogInformation("Memory updated for group {Group} by {Agent}", message.GroupName, agent);
+    }
+
+    private async Task WriteErrorResponseAsync(string requestId, string error, CancellationToken ct)
+    {
+        var response = new AgentDelegationResponse
+        {
+            Success = false,
+            Error = error
+        };
+
+        var responseJson = JsonSerializer.Serialize(response, JsonOpts);
+        var responsePath = Path.Combine(ipcDirectory, $"{requestId}.response.json");
+        await File.WriteAllTextAsync(responsePath, responseJson, ct);
     }
 }

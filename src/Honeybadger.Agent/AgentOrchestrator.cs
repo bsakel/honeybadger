@@ -1,6 +1,7 @@
 using GitHub.Copilot.SDK;
 using Honeybadger.Agent.Tools;
 using Honeybadger.Core.Models;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Serilog.Context;
 
@@ -15,12 +16,12 @@ namespace Honeybadger.Agent;
 /// </summary>
 public class AgentOrchestrator
 {
-    private readonly IpcTools _ipcTools;
+    private readonly IEnumerable<AIFunction> _tools;
     private readonly ILogger<AgentOrchestrator> _logger;
 
-    public AgentOrchestrator(IpcTools ipcTools, ILogger<AgentOrchestrator> logger)
+    public AgentOrchestrator(IEnumerable<AIFunction> tools, ILogger<AgentOrchestrator> logger)
     {
-        _ipcTools = ipcTools;
+        _tools = tools;
         _logger = logger;
     }
 
@@ -131,13 +132,21 @@ public class AgentOrchestrator
                 Mode = SystemMessageMode.Append,
                 Content = BuildSystemContext(request)
             },
-            Tools = [.. _ipcTools.GetAll()]
+            Tools = [.. _tools]
         }, ct);
 
     private static string BuildSystemContext(AgentRequest request)
     {
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"Group: {request.GroupName}");
+
+        // Soul file — highest priority (agent identity)
+        if (!string.IsNullOrWhiteSpace(request.Soul))
+        {
+            sb.AppendLine();
+            sb.AppendLine("## Your Identity");
+            sb.AppendLine(request.Soul);
+        }
 
         if (!string.IsNullOrWhiteSpace(request.GlobalMemory))
         {
@@ -153,6 +162,20 @@ public class AgentOrchestrator
             sb.AppendLine(request.GroupMemory);
         }
 
+        if (!string.IsNullOrWhiteSpace(request.AgentMemory))
+        {
+            sb.AppendLine();
+            sb.AppendLine("## Remembered Facts");
+            sb.AppendLine(request.AgentMemory);
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ConversationSummary))
+        {
+            sb.AppendLine();
+            sb.AppendLine("## Conversation Summary");
+            sb.AppendLine(request.ConversationSummary);
+        }
+
         if (!string.IsNullOrWhiteSpace(request.ConversationHistory))
         {
             sb.AppendLine();
@@ -160,8 +183,18 @@ public class AgentOrchestrator
             sb.AppendLine(request.ConversationHistory);
         }
 
-        sb.AppendLine();
-        sb.AppendLine("You have tools: send_message, schedule_task, pause_task, resume_task, cancel_task, list_tasks.");
+        // Dynamic tool list (replaces hardcoded tools)
+        if (request.AvailableTools?.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"Available tools: {string.Join(", ", request.AvailableTools)}");
+        }
+        else
+        {
+            // Fallback for legacy mode (no multi-agent config)
+            sb.AppendLine();
+            sb.AppendLine("You have tools: send_message, schedule_task, pause_task, resume_task, cancel_task, list_tasks.");
+        }
 
         return sb.ToString();
     }

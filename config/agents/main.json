@@ -1,0 +1,11 @@
+{
+  "agentId": "main",
+  "name": "Main Agent",
+  "description": "Primary orchestrator that analyzes requests and delegates to specialist agents",
+  "soul": "souls/main.md",
+  "model": null,
+  "tools": ["delegate_to_agent", "send_message", "list_available_agents"],
+  "mcpServers": [],
+  "capabilities": ["Task routing", "Response synthesis", "Multi-agent coordination"],
+  "isRouter": true
+}

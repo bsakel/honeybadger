@@ -4,6 +4,7 @@ using Honeybadger.Core.Interfaces;
 using Honeybadger.Core.Models;
 using Honeybadger.Data.Entities;
 using Honeybadger.Data.Repositories;
+using Honeybadger.Host.Formatting;
 using Honeybadger.Host.Memory;
 using Honeybadger.Host.Scheduling;
 using Microsoft.Extensions.DependencyInjection;
@@ -106,6 +107,25 @@ public class SchedulerService(
                 ? $"localhost:{opts.CopilotCli.Port}"
                 : string.Empty;
 
+            // Load conversation history for scheduled tasks (if configured)
+            string? conversationHistory = null;
+            if (opts.ScheduledTaskHistoryCount > 0)
+            {
+                try
+                {
+                    using var scope = scopeFactory.CreateScope();
+                    var msgRepo = scope.ServiceProvider.GetRequiredService<MessageRepository>();
+                    var recentMessages = await msgRepo.GetRecentMessagesAsync(
+                        task.GroupName, opts.ScheduledTaskHistoryCount, ct);
+                    conversationHistory = ConversationFormatter.Format(recentMessages, opts.ConversationHistoryTokenBudget);
+                    logger.LogDebug("Loaded {Count} recent messages for scheduled task", recentMessages.Count);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogDebug(ex, "Could not load conversation history for scheduled task (repo may not be configured)");
+                }
+            }
+
             var request = new AgentRequest
             {
                 CorrelationId = correlationId,
@@ -115,6 +135,9 @@ public class SchedulerService(
                 Model = model,
                 GlobalMemory = memoryStore.LoadGlobalMemory(),
                 GroupMemory = memoryStore.LoadGroupMemory(task.GroupName),
+                AgentMemory = memoryStore.LoadGroupAgentMemory(task.GroupName),
+                ConversationSummary = memoryStore.LoadGroupSummary(task.GroupName),
+                ConversationHistory = conversationHistory,
                 CopilotCliEndpoint = cliEndpoint
             };
 
@@ -166,8 +189,8 @@ public class SchedulerService(
             ? TaskStatusData.Completed
             : TaskStatusData.Active;
 
-        using var scope = scopeFactory.CreateScope();
-        var taskRepo = scope.ServiceProvider.GetRequiredService<TaskRepository>();
+        using var updateScope = scopeFactory.CreateScope();
+        var taskRepo = updateScope.ServiceProvider.GetRequiredService<TaskRepository>();
         await taskRepo.UpdateAfterRunAsync(task.Id, now, nextRunAt, newStatus, ct);
         await taskRepo.AddRunLogAsync(log, ct);
     }

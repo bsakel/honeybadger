@@ -6,16 +6,18 @@ Honeybadger is an AI-powered assistant that runs agents in-process, uses the Git
 
 ## ✨ Features
 
-- **🤖 Intelligent Agents** — Powered by GitHub Copilot SDK with customizable models per group
+- **🤖 Multi-Agent Collaboration** — Router agents delegate tasks to specialist agents with custom tools and personalities
 - **⚡ In-Process Execution** — Agents run directly in the host process for simplicity and speed
-- **💬 Rich Console UI** — Beautiful terminal interface with streaming token output
+- **💬 Named-Pipe UI** — Headless service + separate chat client for cleaner architecture
 - **⏰ Task Scheduling** — Cron expressions, intervals, and one-time tasks
-- **🧠 Conversation Memory** — Automatic context from recent messages + hierarchical CLAUDE.md files
+- **🧠 Enhanced Memory System** — Three-tier memory (persona/facts/summaries) with agent-writable persistence
+- **📝 update_memory Tool** — Agents can save learned facts for future conversations
+- **🎯 Token Budget Awareness** — Configurable token budget (8000 default) prioritizes recent messages
 - **🔒 Security First** — Mount allowlisting, symlink resolution, validated tool execution
 - **📊 SQLite Database** — Simple file-based persistence with EF Core
 - **🚀 Streaming Responses** — Real-time token-by-token output as the agent thinks
-- **🔧 Custom Tools** — Agents can send messages, schedule tasks, list tasks via IPC
-- **✅ GitHub Actions CI** — Automated build, test, and lint
+- **🔧 Dynamic Tools** — Tools configured per agent; IPC, delegation, memory, and scheduling
+- **✅ Comprehensive Testing** — 44 tests (7 Core + 16 Integration + 21 Host)
 
 ## How It Works
 
@@ -40,7 +42,16 @@ You type in the console
   Response displayed in the console via Spectre.Console
 ```
 
-Each group (conversation) has serialized message processing. The agent has six IPC tools it can call: `send_message`, `schedule_task`, `pause_task`, `resume_task`, `cancel_task`, `list_tasks`. Scheduled tasks run on cron expressions, fixed intervals, or as one-shots.
+Each group (conversation) has serialized message processing. Agents can be routers (delegate to specialists) or specialists (handle specific tasks). Tools are configured per agent and can include:
+- **IPC Tools**: `send_message`, `schedule_task`, `pause_task`, `resume_task`, `cancel_task`, `list_tasks`, `update_memory`
+- **Delegation Tools**: `delegate_to_agent`, `list_available_agents` (router agents only)
+
+Agents have access to a three-tier memory system:
+- **CLAUDE.md** — Persona (read-only, defines character/role)
+- **MEMORY.md** — Learned facts (agent-writable via update_memory tool)
+- **summary.md** — Conversation summaries (future feature)
+
+Token budget (default 8000) ensures conversation history fits in context window by prioritizing recent messages.
 
 ## 🚀 Quick Start
 
@@ -81,25 +92,56 @@ Edit `src/Honeybadger.Console/appsettings.json`:
 ```jsonc
 {
   "Agent": {
-    "DefaultModel": "claude-sonnet-4.5",      // AI model to use
-    "MaxConcurrentAgents": 3,                 // Max parallel agents
-    "ConversationHistoryCount": 20,           // Recent messages to include
+    "DefaultModel": "claude-sonnet-4.5",            // AI model to use
+    "MaxConcurrentAgents": 3,                       // Max parallel agents
+    "ConversationHistoryCount": 20,                 // Recent messages to include
+    "ConversationHistoryTokenBudget": 8000,         // Token limit for history (0 = unlimited)
+    "ScheduledTaskHistoryCount": 10,                // History for scheduled tasks
     "CopilotCli": {
       "Port": 3100,
-      "AutoStart": true,                      // Auto-start Copilot CLI
+      "AutoStart": true,                            // Auto-start Copilot CLI
       "ExecutablePath": "copilot",
       "Arguments": "--server --port {port}"
     }
   },
   "Groups": {
     "main": {
-      "Model": null,                          // Override model for this group
+      "Model": null,                                // Override model for this group
       "IsMain": true
     }
   },
   "Database": {
     "ConnectionString": "Data Source=data/honeybadger.db"
   }
+}
+```
+
+### Agent Configuration
+
+Create agent configs in `config/agents/`:
+
+**Router Agent** (`config/agents/main.json`):
+```json
+{
+  "agentId": "main",
+  "name": "Main Agent",
+  "description": "Primary orchestrator that analyzes requests and delegates to specialists",
+  "soul": "souls/main.md",
+  "tools": ["delegate_to_agent", "send_message", "list_available_agents", "update_memory"],
+  "isRouter": true
+}
+```
+
+**Specialist Agent** (`config/agents/scheduler.json`):
+```json
+{
+  "agentId": "scheduler",
+  "name": "Scheduler Agent",
+  "description": "Manages scheduled tasks and reminders",
+  "soul": "souls/scheduler.md",
+  "model": "claude-sonnet-4.5",
+  "tools": ["schedule_task", "list_tasks", "pause_task", "resume_task", "cancel_task"],
+  "isRouter": false
 }
 ```
 
@@ -150,39 +192,77 @@ You: What's my favorite color?
 Agent: You told me earlier that your favorite color is blue.
 ```
 
+### Multi-Agent Collaboration
+
+Router agents can delegate to specialists:
+
+```
+You: Schedule a daily standup at 9 AM and remind me about my favorite color
+Agent (Router): I'll delegate the scheduling task to the scheduler specialist...
+Agent (Scheduler): [Uses schedule_task tool]
+Agent (Router): Task scheduled! And I remember your favorite color is blue.
+```
+
+### Agent Memory Persistence
+
+Agents can save facts for future sessions:
+
+```
+You: Remember that I prefer Python for scripting
+Agent: [Uses update_memory tool]
+Memory updated
+
+[Later, in a new session...]
+You: What's my preferred scripting language?
+Agent: According to my notes, you prefer Python for scripting.
+```
+
+Memory is stored in `groups/{groupName}/MEMORY.md` with attribution:
+
+```markdown
+## Preferences (main, 2026-02-18 14:30)
+- User prefers Python for scripting
+```
+
 ## 🏗️ Architecture
 
 ```
 ┌────────────────────────────────────────────────────────┐
 │                    HOST PROCESS (.NET)                  │
 │                                                         │
-│  ConsoleChat (Spectre.Console)                          │
+│  NamedPipeChatFrontend (headless service)               │
 │       │                                                 │
 │       ▼                                                 │
 │  MessageLoopService                                     │
-│       │                                                 │
-│       ├─ GroupQueue (per-group serialization)           │
+│    ├─ AgentRegistry (loads config/agents/*.json)        │
+│    ├─ AgentToolFactory (maps config → tools)            │
+│    └─ GroupQueue (per-group serialization)              │
 │       │                                                 │
 │       ▼                                                 │
 │  LocalAgentRunner (in-process)                          │
 │       │                                                 │
 │       ▼                                                 │
-│  AgentOrchestrator                                      │
-│    ├─ CopilotClient                                     │
-│    ├─ CopilotSession (streaming)                        │
-│    └─ IpcTools                                          │
-│       ├─ send_message                                   │
-│       ├─ schedule_task                                  │
-│       ├─ pause_task                                     │
-│       ├─ resume_task                                    │
-│       ├─ cancel_task                                    │
-│       └─ list_tasks                                     │
+│  AgentOrchestrator (with soul file)                     │
+│    ├─ CopilotClient (Copilot CLI on port 3100)         │
+│    ├─ CopilotSession (streaming responses)              │
+│    └─ Dynamic Tools (per agent)                         │
+│       ├─ IpcTools (send_message, schedule_task, etc)    │
+│       ├─ AgentDelegationTools (delegate, list agents)   │
+│       └─ update_memory (writes to MEMORY.md)            │
 │                                                         │
 │  IpcWatcherService (watches data/ipc/)                  │
-│  SchedulerService (cron/interval/once)                  │
-│  CopilotCliService (SDK-managed, port 3100)             │
-│  EF Core (SQLite)                                       │
+│    ├─ Routes delegation requests to specialists         │
+│    └─ Handles update_memory writes                      │
+│  SchedulerService (cron/interval/once tasks)            │
+│  HierarchicalMemoryStore (CLAUDE.md + MEMORY.md cache)  │
+│  CopilotCliService (SDK-managed CLI)                    │
+│  EF Core (SQLite database)                              │
 └────────────────────────────────────────────────────────┘
+
+CHAT CLIENT (separate process)
+  ├─ Connects via named pipe "honeybadger-chat"
+  ├─ Sends messages (NDJSON protocol)
+  └─ Receives responses + streaming chunks
 ```
 
 ## 🗂️ Project Structure
@@ -194,11 +274,24 @@ honeybadger/
 │   ├── Honeybadger.Data/           # EF Core DbContext
 │   ├── Honeybadger.Data.Sqlite/    # SQLite provider + migrations
 │   ├── Honeybadger.Host/           # Host orchestration services
+│   │   ├── Agents/                 # AgentRegistry, AgentToolFactory, LocalAgentRunner
+│   │   ├── Memory/                 # HierarchicalMemoryStore (caching)
+│   │   └── Services/               # MessageLoop, IpcWatcher, Scheduler
 │   ├── Honeybadger.Agent/          # Agent logic (runs in-process)
-│   └── Honeybadger.Console/        # Console frontend (entry point)
-├── tests/                          # 36 tests across 4 projects
-├── groups/                         # Per-group CLAUDE.md memory files
-├── config/                         # mount-allowlist.json
+│   │   └── Tools/                  # IpcTools, AgentDelegationTools
+│   ├── Honeybadger.Console/        # Headless service (entry point)
+│   └── Honeybadger.Chat/           # Chat client (named-pipe)
+├── tests/                          # 44 tests (7 Core + 16 Integration + 21 Host)
+├── config/
+│   ├── agents/                     # Agent configurations (*.json)
+│   └── mount-allowlist.json        # Filesystem security
+├── souls/                          # Agent personality files (*.md)
+├── groups/                         # Per-group memory files
+│   └── {groupName}/
+│       ├── CLAUDE.md               # Persona (read-only)
+│       ├── MEMORY.md               # Learned facts (agent-writable)
+│       └── summary.md              # Summaries (future)
+├── plans/                          # Implementation roadmap
 └── .github/workflows/              # CI pipeline
 ```
 
@@ -313,17 +406,26 @@ MIT License - see [LICENSE](LICENSE) for details
 ## 🐛 Known Issues & Roadmap
 
 ### Current Limitations
-- Console-only interface (no WhatsApp/Telegram/Web UI yet)
+- Named-pipe UI only (no WhatsApp/Telegram/Web UI yet)
 - Single-process architecture (no isolation between groups)
 - SQLite only (no SQL Server or other databases)
+- No conversation summarization yet (summary.md files not auto-generated)
+
+### Completed ✅
+- ✅ Multi-agent collaboration (router + specialists)
+- ✅ Agent-writable memory (update_memory tool)
+- ✅ Token budget awareness
+- ✅ Separate memory files (persona/facts/summaries)
+- ✅ Named-pipe architecture (headless service + chat client)
+- ✅ Comprehensive test suite (44 tests)
 
 ### Roadmap
+- [ ] **Phase 7: Advanced Memory** — Conversation summarization, semantic search with sqlite-vec
 - [ ] WhatsApp frontend via `IChatFrontend`
 - [ ] Web UI (Blazor or ASP.NET Core)
 - [ ] Docker containerization for agent sandboxing (optional)
 - [ ] SQL Server support for scale-out scenarios (optional)
 - [ ] Multi-tenant support
-- [ ] Cursor-based message replay for crash recovery
 
 ## 📞 Support
 

@@ -34,3 +34,26 @@ public class TaskSummary
     public string Status { get; init; } = string.Empty;
     public string? NextRunAt { get; init; }
 }
+
+public record DelegateToAgentPayload
+{
+    public required string RequestId { get; init; }
+    public required string AgentId { get; init; }
+    public required string Task { get; init; }
+    public string? Context { get; init; }
+    public int TimeoutSeconds { get; init; } = 300;
+}
+
+public record AgentDelegationResponse
+{
+    public bool Success { get; init; }
+    public string? Result { get; init; }
+    public string? Error { get; init; }
+}
+
+public record UpdateMemoryPayload
+{
+    public required string Content { get; init; }
+    public string? Section { get; init; }
+    public string? AgentId { get; init; }
+}
