@@ -25,13 +25,11 @@
     <File Path="plans/00-overview.md" />
     <File Path="plans/07-advanced-memory.md" />
   </Folder>
-  <Folder Name="/plans/archive/">
-    <File Path="plans/archive/01-memory-bugfixes.md" />
-    <File Path="plans/archive/02-service-chat-split.md" />
-    <File Path="plans/archive/03-console-logging.md" />
-    <File Path="plans/archive/04-multi-agent-foundation.md" />
-    <File Path="plans/archive/05-multi-agent-delegation.md" />
-    <File Path="plans/archive/06-memory-enhancements.md" />
+  <Folder Name="/plans/draft/">
+    <File Path="plans/draft/08-bmad-sdlc-agents.md" />
+    <File Path="plans/draft/09-multi-frontend-chat.md" />
+    <File Path="plans/draft/10-linux-compatibility.md" />
+    <File Path="plans/draft/11-agent-pipeline-improvements.md" />
   </Folder>
   <Folder Name="/Solution Items/">
     <File Path=".editorconfig" />
