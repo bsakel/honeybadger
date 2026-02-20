@@ -1,6 +1,6 @@
 using System.Text.Json;
 using Honeybadger.Agent;
-using Honeybadger.Agent.Tools;
+using Honeybadger.Agent.Tools.Core;
 using Honeybadger.Core.Models;
 using Microsoft.Extensions.Logging;
 

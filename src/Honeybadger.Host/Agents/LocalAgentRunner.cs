@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using Honeybadger.Agent;
-using Honeybadger.Agent.Tools;
+using Honeybadger.Agent.Tools.Core;
 using Honeybadger.Core.Configuration;
 using Honeybadger.Core.Interfaces;
 using Honeybadger.Core.Models;

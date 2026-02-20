@@ -1,5 +1,6 @@
 using System.Threading.Channels;
 using FluentAssertions;
+using Honeybadger.Agent.Tools.Core;
 using Honeybadger.Core.Configuration;
 using Honeybadger.Core.Interfaces;
 using Honeybadger.Core.Models;
@@ -74,7 +75,8 @@ public class MessageLoopServiceTests : IDisposable
 
         var ipcDir = Path.Combine(_tempDir, "ipc");
         Directory.CreateDirectory(ipcDir);
-        var agentToolFactory = new AgentToolFactory(NullLoggerFactory.Instance, ipcDir);
+        var agentToolFactory = new AgentToolFactory(
+            [new CoreToolProvider(ipcDir, NullLoggerFactory.Instance)]);
 
         using var cts = new CancellationTokenSource();
         var svc = new MessageLoopService(

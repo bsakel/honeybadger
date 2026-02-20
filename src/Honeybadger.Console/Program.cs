@@ -1,3 +1,4 @@
+using Honeybadger.Agent.Tools.Core;
 using Honeybadger.Core.Configuration;
 using Honeybadger.Core.Interfaces;
 using Honeybadger.Data;
@@ -70,15 +71,12 @@ builder.Services.AddSingleton(sp =>
 builder.Services.AddSingleton<MountSecurityValidator>();
 
 // Multi-agent infrastructure
+var ipcDir = Path.Combine(repoRoot, "data", "ipc");
 builder.Services.AddSingleton<AgentRegistry>();
-builder.Services.AddSingleton<AgentToolFactory>(sp =>
-{
-    var ipcDir = Path.Combine(repoRoot, "data", "ipc");
-    return new AgentToolFactory(sp.GetRequiredService<ILoggerFactory>(), ipcDir);
-});
+builder.Services.AddCoreTools(ipcDir);
+builder.Services.AddSingleton<AgentToolFactory>();
 
 // Agent runner — in-process only (LocalAgentRunner)
-var ipcDir = Path.Combine(repoRoot, "data", "ipc");
 Directory.CreateDirectory(ipcDir);
 
 builder.Services.AddSingleton<IAgentRunner, LocalAgentRunner>();

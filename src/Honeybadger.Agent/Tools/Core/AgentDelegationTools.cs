@@ -3,7 +3,7 @@ using Honeybadger.Core.Models;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
-namespace Honeybadger.Agent.Tools;
+namespace Honeybadger.Agent.Tools.Core;
 
 /// <summary>
 /// Multi-agent delegation tools for router agents.
